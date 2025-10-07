@@ -1,7 +1,8 @@
 import random
 import bittensor as bt
 import numpy as np
-from typing import List
+import os
+from typing import List, Optional
 
 
 def check_uid_availability(
@@ -60,3 +61,25 @@ def get_random_uids(self, k: int, exclude: List[int] = None) -> np.ndarray:
         )
     uids = np.array(random.sample(available_uids, k))
     return uids
+
+
+def get_selected_miner_uid(self) -> Optional[int]:
+    """
+    Returns the UID of the miner with the hotkey specified in SELECTED_MINER_HOTKEY environment variable.
+    
+    Returns:
+        Optional[int]: The UID of the selected miner, or None if not found or not available.
+    """
+    selected_hotkey = os.getenv("SELECTED_MINER_HOTKEY")
+    if not selected_hotkey:
+        bt.logging.warning("SELECTED_MINER_HOTKEY environment variable not set")
+        return None
+    
+    # Find the UID with the matching hotkey
+    for uid in range(self.metagraph.n.item()):
+        if self.metagraph.hotkeys[uid] == selected_hotkey:
+            # Check if the miner is available
+            return uid
+    
+    bt.logging.warning(f"Selected miner with hotkey {selected_hotkey} not found in metagraph")
+    return None

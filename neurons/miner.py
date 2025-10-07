@@ -20,7 +20,14 @@
 import time
 import typing
 import bittensor as bt
+import os
+import sys
+# Add the project root to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+from dotenv import load_dotenv
 
+load_dotenv()
 # Bittensor Miner Template:
 import template
 

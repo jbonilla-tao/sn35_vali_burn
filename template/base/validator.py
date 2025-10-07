@@ -362,7 +362,9 @@ class BaseValidatorNeuron(BaseNeuron):
         self.scores: np.ndarray = (
             alpha * scattered_rewards + (1 - alpha) * self.scores
         )
+        ## show index of self.scores that is not 0
         bt.logging.debug(f"Updated moving avg scores: {self.scores}")
+        bt.logging.debug(f"Updated moving avg scores index: {np.where(self.scores != 0)[0]}")
 
     def save_state(self):
         """Saves the state of the validator to a file."""
