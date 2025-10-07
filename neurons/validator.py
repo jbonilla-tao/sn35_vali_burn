@@ -22,12 +22,22 @@ import time
 
 # Bittensor
 import bittensor as bt
+import sys
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+# Add the project root to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
 # import base validator class which takes care of most of the boilerplate
 from template.base.validator import BaseValidatorNeuron
 
 # Bittensor Validator Template:
-from template.validator import forward
+from template.validator.forward import forward
 
 
 class Validator(BaseValidatorNeuron):
