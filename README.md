@@ -21,9 +21,17 @@ This repository is for validator and supporting tooling for Cartha. Cartha align
 3. Copy `.env.sample` to `.env` and set `SELECTED_MINER_HOTKEY` to the miner that should receive weights.
     > or run this command to set it in one go:
     ```bash
-    cp .env.sample .env && echo "SELECTED_MINER_HOTKEY=miner_hotkey_here" >> .env
+    echo "SELECTED_MINER_HOTKEY=miner_hotkey_here" >> .env
     ```
-4. Run using this command:
+4. Create a virtual environment
+   ```bash
+    python -m venv venv
+   ```
+5. Install prerequisites
+    ```bash
+    pip install -r requirements.txt
+    ``` 
+6. Run using this command:
 ```bash
 python neurons/validator.py \
 --netuid 35 \
