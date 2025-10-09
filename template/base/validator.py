@@ -258,13 +258,19 @@ class BaseValidatorNeuron(BaseNeuron):
         bt.logging.debug("processed_weights", processed_weights)
         bt.logging.debug("processed_weight_uids", processed_weight_uids)
 
+        processed_uids_arr = np.asarray(processed_weight_uids)
+        processed_weights_arr = np.asarray(processed_weights, dtype=np.float64)
+
         # Provide a human-readable mapping of the weights about to be emitted.
         weight_summary = []
-        for uid, weight in zip(processed_weight_uids.tolist(), processed_weights.tolist()):
+        for uid, weight in zip(processed_uids_arr, processed_weights_arr):
             hotkey = "<unknown>"
-            if uid < len(self.metagraph.hotkeys):
-                hotkey = self.metagraph.hotkeys[uid]
-            weight_summary.append(f"uid={uid} hotkey={hotkey} weight={weight:.6f}")
+            uid_index = int(uid)
+            if 0 <= uid_index < len(self.metagraph.hotkeys):
+                hotkey = self.metagraph.hotkeys[uid_index]
+            weight_summary.append(
+                f"uid={uid_index} hotkey={hotkey} weight={float(weight):.6f}"
+            )
         if weight_summary:
             bt.logging.info(
                 f"Preparing weight update on netuid {self.config.netuid}: "
@@ -285,13 +291,19 @@ class BaseValidatorNeuron(BaseNeuron):
         bt.logging.debug("uint_weights", uint_weights)
         bt.logging.debug("uint_uids", uint_uids)
 
-        if len(uint_uids) > 0:
+        uint_uids_arr = np.asarray(uint_uids)
+        uint_weights_arr = np.asarray(uint_weights)
+
+        if uint_uids_arr.size > 0:
             uint_summary = []
-            for uid, weight in zip(uint_uids.tolist(), uint_weights.tolist()):
+            for uid, weight in zip(uint_uids_arr, uint_weights_arr):
                 hotkey = "<unknown>"
-                if uid < len(self.metagraph.hotkeys):
-                    hotkey = self.metagraph.hotkeys[uid]
-                uint_summary.append(f"uid={uid} hotkey={hotkey} uint_weight={weight}")
+                uid_index = int(uid)
+                if 0 <= uid_index < len(self.metagraph.hotkeys):
+                    hotkey = self.metagraph.hotkeys[uid_index]
+                uint_summary.append(
+                    f"uid={uid_index} hotkey={hotkey} uint_weight={int(weight)}"
+                )
             bt.logging.info(
                 "Submitting weight transaction payload: " + "; ".join(uint_summary)
             )
