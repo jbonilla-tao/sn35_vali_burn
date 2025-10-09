@@ -47,5 +47,14 @@ async def forward(self):
         raise ValueError("No selected miner available")
 
     rewards = [1.0] * len(miner_uids)
+    reward_logs = []
+    for uid, reward in zip(miner_uids, rewards):
+        hotkey = "<unknown>"
+        if int(uid) < len(self.metagraph.hotkeys):
+            hotkey = self.metagraph.hotkeys[int(uid)]
+        reward_logs.append(f"uid={int(uid)} hotkey={hotkey} reward={reward}")
+    if reward_logs:
+        bt.logging.info("Emitting rewards: " + "; ".join(reward_logs))
+
     self.update_scores(rewards, miner_uids)
     time.sleep(5)

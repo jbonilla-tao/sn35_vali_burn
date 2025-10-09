@@ -258,6 +258,29 @@ class BaseValidatorNeuron(BaseNeuron):
         bt.logging.debug("processed_weights", processed_weights)
         bt.logging.debug("processed_weight_uids", processed_weight_uids)
 
+        processed_uids_arr = np.asarray(processed_weight_uids)
+        processed_weights_arr = np.asarray(processed_weights, dtype=np.float64)
+
+        # Provide a human-readable mapping of the weights about to be emitted.
+        weight_summary = []
+        for uid, weight in zip(processed_uids_arr, processed_weights_arr):
+            hotkey = "<unknown>"
+            uid_index = int(uid)
+            if 0 <= uid_index < len(self.metagraph.hotkeys):
+                hotkey = self.metagraph.hotkeys[uid_index]
+            weight_summary.append(
+                f"uid={uid_index} hotkey={hotkey} weight={float(weight):.6f}"
+            )
+        if weight_summary:
+            bt.logging.info(
+                f"Preparing weight update on netuid {self.config.netuid}: "
+                + "; ".join(weight_summary)
+            )
+        else:
+            bt.logging.info(
+                f"No non-zero weights to emit on netuid {self.config.netuid}."
+            )
+
         # Convert to uint16 weights and uids.
         (
             uint_uids,
@@ -267,6 +290,23 @@ class BaseValidatorNeuron(BaseNeuron):
         )
         bt.logging.debug("uint_weights", uint_weights)
         bt.logging.debug("uint_uids", uint_uids)
+
+        uint_uids_arr = np.asarray(uint_uids)
+        uint_weights_arr = np.asarray(uint_weights)
+
+        if uint_uids_arr.size > 0:
+            uint_summary = []
+            for uid, weight in zip(uint_uids_arr, uint_weights_arr):
+                hotkey = "<unknown>"
+                uid_index = int(uid)
+                if 0 <= uid_index < len(self.metagraph.hotkeys):
+                    hotkey = self.metagraph.hotkeys[uid_index]
+                uint_summary.append(
+                    f"uid={uid_index} hotkey={hotkey} uint_weight={int(weight)}"
+                )
+            bt.logging.info(
+                "Submitting weight transaction payload: " + "; ".join(uint_summary)
+            )
 
         # Set the weights on chain via our subtensor connection.
         result, msg = self.subtensor.set_weights(
@@ -279,7 +319,9 @@ class BaseValidatorNeuron(BaseNeuron):
             version_key=self.spec_version,
         )
         if result is True:
-            bt.logging.info("set_weights on chain successfully!")
+            bt.logging.info(
+                f"set_weights succeeded on netuid {self.config.netuid} for {len(uint_uids)} hotkeys."
+            )
         else:
             bt.logging.error("set_weights failed", msg)
 
