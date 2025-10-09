@@ -78,7 +78,9 @@ def get_selected_miner_uid(self) -> Optional[int]:
     # Find the UID with the matching hotkey
     for uid in range(self.metagraph.n.item()):
         if self.metagraph.hotkeys[uid] == selected_hotkey:
-            # Check if the miner is available
+            bt.logging.info(
+                f"Resolved selected miner hotkey {selected_hotkey} to uid {uid}"
+            )
             return uid
     
     bt.logging.warning(f"Selected miner with hotkey {selected_hotkey} not found in metagraph")

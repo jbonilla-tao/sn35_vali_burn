@@ -55,7 +55,25 @@ class Validator(BaseValidatorNeuron):
         bt.logging.info("load_state()")
         self.load_state()
 
-        # TODO(developer): Anything specific to your use case you can do here
+        selected_hotkey = os.getenv("SELECTED_MINER_HOTKEY")
+        if selected_hotkey:
+            matching_uid = None
+            if hasattr(self, "metagraph") and getattr(self.metagraph, "hotkeys", None):
+                try:
+                    hotkeys_list = list(self.metagraph.hotkeys)
+                    matching_uid = hotkeys_list.index(selected_hotkey)
+                except ValueError:
+                    matching_uid = None
+            if matching_uid is not None:
+                bt.logging.info(
+                    f"Selected miner hotkey from .env: {selected_hotkey} (uid {matching_uid})"
+                )
+            else:
+                bt.logging.info(
+                    f"Selected miner hotkey from .env: {selected_hotkey} (not yet present in metagraph)"
+                )
+        else:
+            bt.logging.warning("SELECTED_MINER_HOTKEY is not set in environment")
 
     async def forward(self):
         """
@@ -66,7 +84,6 @@ class Validator(BaseValidatorNeuron):
         - Rewarding the miners
         - Updating the scores
         """
-        # TODO(developer): Rewrite this function based on your protocol definition.
         return await forward(self)
 
 
