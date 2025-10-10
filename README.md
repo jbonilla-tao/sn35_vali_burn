@@ -15,6 +15,16 @@ This repository is for validator and supporting tooling for Cartha. Cartha align
 ## Validator behaviour
 - Validators monitor a designated miner and emit weights solely for the configured `SELECTED_MINER_HOTKEY`.
 
+## Minimum compute requirements
+| Component   | Minimum           | Recommended              |
+| ----------- | ----------------- | ------------------------ |
+| **CPU**     | 2 cores @ 2.2 GHz | 4 cores @ 3.0 GHz        |
+| **RAM**     | 4 GB              | 8 GB                     |
+| **Storage** | 2 GB free (SSD)   | 20 GB SSD                |
+| **Network** | 100 / 20 Mbps     | 750 / 600 Mbps           |
+| **OS**      | Debian 12         | Debian 12 / Ubuntu 22.04 |
+| **GPU**     | Not required      | Optional for inference   |
+
 ## How to run the validator
 1. Install Python 3.10+ and create a virtual environment.
 2. Install dependencies with `pip install -r requirements.txt`.
