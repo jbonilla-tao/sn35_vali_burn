@@ -49,3 +49,4 @@ python neurons/validator.py \
 --wallet.hotkey "validator_hotkey" \
 --logging.debug
 ```
+[See test evidence for example](tests/evidence/TEST_EVIDENCE.md)
