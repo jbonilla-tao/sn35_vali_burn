@@ -268,12 +268,18 @@ class TempValidator:
                             netuid=self.config.netuid
                         )
 
-                # Sleep only for non-benign errors
-                if not is_benign:
-                    time.sleep(10)
-
                 # Update local subtensor reference after potential network switch
                 self.subtensor = self.subtensor_manager.get_subtensor()
+
+                # Sleep and continue - longer for non-benign errors
+                if is_benign:
+                    # For benign "too soon" errors, wait the configured interval before retrying
+                    sleep_time = self.config.set_weights_interval * BLOCK_TIME
+                    print(f"Too soon to set weights. Waiting {self.config.set_weights_interval} blocks ({sleep_time}s) before retry...")
+                    time.sleep(sleep_time)
+                else:
+                    # For non-benign errors, short sleep before network switch retry
+                    time.sleep(10)
 
                 continue
 
