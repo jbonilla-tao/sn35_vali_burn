@@ -183,31 +183,56 @@ class TempValidator:
             # Check Validator Permit every 6 hours (for monitoring only)
             if has_validator_permit is None or time.time() - last_permit_check >= permit_check_interval:
                 print("Checking validator permit status...")
-                validator_permits = self.subtensor.query_subtensor(
-                    "ValidatorPermit",
-                    params=[self.config.netuid],
-                ).value
-                has_validator_permit = validator_permits[self.this_uid]
-                last_permit_check = time.time()
-                print(f"Validator Permit: {has_validator_permit}")
+                try:
+                    validator_permits = self.subtensor.query_subtensor(
+                        "ValidatorPermit",
+                        params=[self.config.netuid],
+                    ).value
+                    has_validator_permit = validator_permits[self.this_uid]
+                    print(f"Validator Permit: {has_validator_permit}")
 
-                # Warn about no permit but don't block weight setting
-                if not has_validator_permit:
-                    print("WARNING: No validator permit detected. Weights may not be accepted by the network.")
+                    # Warn about no permit but don't block weight setting
+                    if not has_validator_permit:
+                        print("WARNING: No validator permit detected. Weights may not be accepted by the network.")
+                        if self.slack_notifier:
+                            self.slack_notifier.record_no_permit_event()
+                            msg = f"⚠️ Validator {self.wallet.hotkey.ss58_address} (uid {self.this_uid}) has no permit on subnet {self.config.netuid}. Attempting to set weights anyway."
+                            self.slack_notifier.send_message(msg, level="warning")
+                except Exception as e:
+                    print(f"WARNING: Failed to check validator permit: {e}")
                     if self.slack_notifier:
-                        self.slack_notifier.record_no_permit_event()
-                        msg = f"⚠️ Validator {self.wallet.hotkey.ss58_address} (uid {self.this_uid}) has no permit on subnet {self.config.netuid}. Attempting to set weights anyway."
-                        self.slack_notifier.send_message(msg, level="warning")
+                        self.slack_notifier.send_message(
+                            f"⚠️ Failed to query ValidatorPermit on subnet {self.config.netuid}: {e}",
+                            level="warning"
+                        )
+                finally:
+                    # Always update check time, even on failure
+                    last_permit_check = time.time()
 
             # Get the weights version key every 6 hours
             if cached_version_key is None or time.time() - last_version_key_check >= version_key_check_interval:
                 print("Fetching weights version key...")
-                cached_version_key = self.subtensor.query_subtensor(
-                    "WeightsVersionKey",
-                    params=[self.config.netuid],
-                ).value
-                last_version_key_check = time.time()
-                print(f"Weights Version Key: {cached_version_key}")
+                try:
+                    new_version_key = self.subtensor.query_subtensor(
+                        "WeightsVersionKey",
+                        params=[self.config.netuid],
+                    ).value
+                    cached_version_key = new_version_key
+                    print(f"Weights Version Key: {cached_version_key}")
+                except Exception as e:
+                    print(f"WARNING: Failed to fetch weights version key: {e}")
+                    if self.slack_notifier:
+                        self.slack_notifier.send_message(
+                            f"⚠️ Failed to query WeightsVersionKey on subnet {self.config.netuid}: {e}. Using cached/default value.",
+                            level="warning"
+                        )
+                    # If we've never gotten a version key, use 0 as default
+                    if cached_version_key is None:
+                        cached_version_key = 0
+                        print(f"Using default version key: {cached_version_key}")
+                finally:
+                    # Always update check time, even on failure
+                    last_version_key_check = time.time()
 
             version_key = cached_version_key
 
