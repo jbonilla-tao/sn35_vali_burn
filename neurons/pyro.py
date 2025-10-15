@@ -180,7 +180,7 @@ class TempValidator:
                 time.sleep(10)
                 continue
 
-            # Check Validator Permit every 6 hours
+            # Check Validator Permit every 6 hours (for monitoring only)
             if has_validator_permit is None or time.time() - last_permit_check >= permit_check_interval:
                 print("Checking validator permit status...")
                 validator_permits = self.subtensor.query_subtensor(
@@ -191,11 +191,13 @@ class TempValidator:
                 last_permit_check = time.time()
                 print(f"Validator Permit: {has_validator_permit}")
 
-            if not has_validator_permit:
-                self.handle_no_permit()
-                # Force recheck of permit after handling no permit
-                has_validator_permit = None
-                continue
+                # Warn about no permit but don't block weight setting
+                if not has_validator_permit:
+                    print("WARNING: No validator permit detected. Weights may not be accepted by the network.")
+                    if self.slack_notifier:
+                        self.slack_notifier.record_no_permit_event()
+                        msg = f"⚠️ Validator {self.wallet.hotkey.ss58_address} (uid {self.this_uid}) has no permit on subnet {self.config.netuid}. Attempting to set weights anyway."
+                        self.slack_notifier.send_message(msg, level="warning")
 
             # Get the weights version key every 6 hours
             if cached_version_key is None or time.time() - last_version_key_check >= version_key_check_interval:
