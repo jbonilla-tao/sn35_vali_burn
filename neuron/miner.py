@@ -277,6 +277,7 @@ class StakeManager:
         self,
         subtensor: "bt.subtensor",
         wallet: "bt.wallet",
+        primary_hotkey: str,
         netuid: int,
         aggregator_hotkey: str,
         destination_coldkey: str,
@@ -284,14 +285,16 @@ class StakeManager:
     ) -> None:
         self.subtensor = subtensor
         self.wallet = wallet
+        self.primary_hotkey = primary_hotkey
         self.netuid = netuid
         self.aggregator_hotkey = aggregator_hotkey
         self.destination_coldkey = destination_coldkey
         self.wait_for_finalization = wait_for_finalization
         self.coldkey_ss58 = wallet.coldkeypub.ss58_address
         bt.logging.debug(
-            f"StakeManager initialized with netuid={netuid}, aggregator_hotkey={aggregator_hotkey}, "
-            f"destination_coldkey={destination_coldkey}, wait_for_finalization={wait_for_finalization}."
+            f"StakeManager initialized with netuid={netuid}, primary_hotkey={primary_hotkey}, "
+            f"aggregator_hotkey={aggregator_hotkey}, destination_coldkey={destination_coldkey}, "
+            f"wait_for_finalization={wait_for_finalization}."
         )
 
     def owned_hotkeys(self) -> list[str]:
@@ -329,47 +332,59 @@ class StakeManager:
             snapshots.append(StakeSnapshot(hotkey=hotkey, stake=stake))
         return snapshots
 
+    def relevant_hotkeys(self) -> list[str]:
+        """
+        Return the set of hotkeys we actively manage (primary and aggregator) without duplicates.
+        """
+        ordered: list[str] = []
+        for candidate in (self.primary_hotkey, self.aggregator_hotkey):
+            if candidate and candidate not in ordered:
+                ordered.append(candidate)
+        return ordered
+
     def sweep_to_aggregator(self) -> bool:
         bt.logging.debug(f"Beginning sweep of stakes into aggregator hotkey {self.aggregator_hotkey}.")
-        hotkeys = self.owned_hotkeys()
-        
-        moved_any = False
-        for hotkey in hotkeys:
-            if hotkey == self.aggregator_hotkey:
-                continue
-            stake = self.fetch_stake(hotkey)
-            if stake is None or stake.rao <= 0:
-                bt.logging.debug(
-                    f"Skipping hotkey {hotkey} due to no stake or retrieval failure."
-                )
-                continue
+        if not self.primary_hotkey:
+            bt.logging.debug("No primary hotkey configured; skipping sweep.")
+            return False
+        if self.primary_hotkey == self.aggregator_hotkey:
+            bt.logging.debug("Primary hotkey matches aggregator; skipping sweep to avoid self-transfer.")
+            return False
 
-            bt.logging.info(
-                f"{OK}➡️ Moving {stake} ({stake.tao:.9f} α) from hotkey {hotkey} to {self.aggregator_hotkey} on netuid {self.netuid}.{Style.RESET_ALL}"
-            )
-            try:
-                bt.logging.debug(
-                    f"Submitting move_stake extrinsic from {hotkey} to {self.aggregator_hotkey} (move_all_stake=True)."
-                )
-                success = self.subtensor.move_stake(
-                    wallet=self.wallet,
-                    origin_hotkey=hotkey,
-                    origin_netuid=self.netuid,
-                    destination_hotkey=self.aggregator_hotkey,
-                    destination_netuid=self.netuid,
-                    move_all_stake=True,
-                )
-            except Exception as exc:  # pylint: disable=broad-except
-                bt.logging.error(
-                    f"{ERR}❌ Failed to move stake from {hotkey} to {self.aggregator_hotkey}:{Style.RESET_ALL} {exc}"
-                )
-                success = False
-
-            moved_any = moved_any or success
+        stake = self.fetch_stake(self.primary_hotkey)
+        if stake is None or stake.rao <= 0:
             bt.logging.debug(
-                f"Move stake result for {hotkey} -> {self.aggregator_hotkey}: {success}"
+                f"Skipping primary hotkey {self.primary_hotkey} due to no stake or retrieval failure."
             )
-        return moved_any
+            return False
+
+        bt.logging.info(
+            f"{OK}➡️ Moving {stake} ({stake.tao:.9f} α) from hotkey {self.primary_hotkey} "
+            f"to {self.aggregator_hotkey} on netuid {self.netuid}.{Style.RESET_ALL}"
+        )
+        try:
+            bt.logging.debug(
+                f"Submitting move_stake extrinsic from {self.primary_hotkey} to {self.aggregator_hotkey} "
+                f"(move_all_stake=True)."
+            )
+            success = self.subtensor.move_stake(
+                wallet=self.wallet,
+                origin_hotkey=self.primary_hotkey,
+                origin_netuid=self.netuid,
+                destination_hotkey=self.aggregator_hotkey,
+                destination_netuid=self.netuid,
+                move_all_stake=True,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            bt.logging.error(
+                f"{ERR}❌ Failed to move stake from {self.primary_hotkey} to {self.aggregator_hotkey}:{Style.RESET_ALL} {exc}"
+            )
+            success = False
+
+        bt.logging.debug(
+            f"Move stake result for {self.primary_hotkey} -> {self.aggregator_hotkey}: {success}"
+        )
+        return success
 
     def transfer_aggregated_stake(self) -> bool:
         bt.logging.debug(f"Preparing to transfer aggregated stake from hotkey {self.aggregator_hotkey}.")
@@ -493,6 +508,10 @@ def main() -> None:
     register_signal_handlers()
 
     wallet = bt.wallet(config=config)
+    try:
+        primary_hotkey_ss58 = wallet.hotkey.ss58_address
+    except (KeyFileError, AttributeError):
+        primary_hotkey_ss58 = ""
     env_file = getattr(config, "env_file", None)
     password_env_var = getattr(config, "wallet_password_env", "MINER_WALLET_PASSWORD")
     password_file = getattr(config, "wallet_password_file", None)
@@ -505,10 +524,7 @@ def main() -> None:
     subtensor = bt.subtensor(config=config)
     bt.logging.debug(f"Subtensor connection established to network {subtensor.network}.")
 
-    try:
-        hotkey_ss58 = wallet.hotkey.ss58_address
-    except (KeyFileError, AttributeError):
-        hotkey_ss58 = "<unavailable>"
+    hotkey_ss58 = primary_hotkey_ss58 or "<unavailable>"
 
     bt.logging.info(
         f"{INFO}🔑 Loaded wallet:{Style.RESET_ALL} coldkey {wallet.coldkeypub.ss58_address}, "
@@ -521,6 +537,7 @@ def main() -> None:
     manager = StakeManager(
         subtensor=subtensor,
         wallet=wallet,
+        primary_hotkey=primary_hotkey_ss58,
         netuid=config.netuid,
         aggregator_hotkey=config.aggregator_hotkey,
         destination_coldkey=config.destination_coldkey,
@@ -531,7 +548,7 @@ def main() -> None:
     bt.logging.info(
         f"{INFO}🧾 Owned hotkeys for coldkey {manager.coldkey_ss58}:{Style.RESET_ALL} {', '.join(owned) or 'none'}"
     )
-    snapshots = manager.snapshot_stakes(owned)
+    snapshots = manager.snapshot_stakes(manager.relevant_hotkeys())
     for snapshot in snapshots:
         bt.logging.info(
             f"{INFO}💹 Stake snapshot:{Style.RESET_ALL} {snapshot.hotkey} (netuid {config.netuid}) "

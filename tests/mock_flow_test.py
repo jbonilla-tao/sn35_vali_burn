@@ -96,13 +96,14 @@ class FakeSubtensor:
     def __init__(self, *, network: str | None = None, config: object | None = None, **kwargs):
         wallet_cfg = getattr(config, "wallet", SimpleNamespace(name="mock_wallet", hotkey="mock_hotkey"))
         self.coldkey = f"cold-{getattr(wallet_cfg, 'name', 'mock_wallet')}"
-        self.primary_hotkey = getattr(wallet_cfg, "hotkey", "mock_hotkey")
+        primary_hotkey_name = getattr(wallet_cfg, "hotkey", "mock_hotkey")
+        self.primary_hotkey = f"hot-{primary_hotkey_name}"
         self.aggregator_hotkey = getattr(config, "aggregator_hotkey", "mock_aggregator")
         self.destination_coldkey = getattr(config, "destination_coldkey", "mock_destination")
         self.network = network or getattr(getattr(config, "subtensor", SimpleNamespace()), "network", "mocknet")
 
         owned_alt_hotkey = f"{self.primary_hotkey}-alt"
-        self.owned_hotkeys = [self.aggregator_hotkey, owned_alt_hotkey]
+        self.owned_hotkeys = [self.aggregator_hotkey, self.primary_hotkey, owned_alt_hotkey]
         self._stakes = {
             (self.coldkey, self.primary_hotkey): Balance.from_tao(5),
             (self.coldkey, owned_alt_hotkey): Balance.from_tao(5),
