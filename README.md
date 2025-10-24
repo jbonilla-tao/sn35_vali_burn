@@ -115,7 +115,8 @@ Both scripts reuse wallet/subtensor argument helpers from the shared `config.py`
 If the wallet password lives in Google Secret Manager you can use the helper launcher in `scripts/run_miner_with_secret.py`:
 
 ```bash
-pip install -r requirements.txt  # ensure google-cloud-secret-manager is available
+pip install -r requirements.txt
+gcloud auth application-default login
 python scripts/run_miner_with_secret.py \
   --secret-id projects/<project>/secrets/<secret-name> \
   --version latest \
