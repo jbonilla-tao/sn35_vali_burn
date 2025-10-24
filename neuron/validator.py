@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+
+# Add project root to Python path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import time
 
 import bittensor as bt
@@ -5,6 +11,7 @@ from bittensor_wallet import Wallet
 
 from utils.config import parse_validator_config
 from utils.slack_notifier import SlackNotifier
+from utils.weight_failure_classifier import WeightFailureClassifier
 from colorama import Fore, Style, init as colorama_init
 
 colorama_init(autoreset=True)
@@ -177,6 +184,9 @@ class TempValidator:
             if not success:
                 bt.logging.error(f"{ERR}❌ Error setting weights:{Style.RESET_ALL} {message}")
 
+                # Check if this is a benign "too soon" error
+                is_benign = WeightFailureClassifier.is_benign(message)
+
                 # Track failure and send alerts
                 if self.slack_notifier:
                     should_alert, failure_type = self.slack_notifier.record_weight_set_failure(message)
@@ -187,8 +197,20 @@ class TempValidator:
                             netuid=self.config.netuid
                         )
 
-                bt.logging.debug("Sleeping 10 seconds before retry due to weight error.")
-                time.sleep(10)
+                # Sleep and continue - longer for benign "too soon" errors
+                if is_benign:
+                    # For benign "too soon" errors, wait the configured interval before retrying
+                    sleep_time = self.config.set_weights_interval * BLOCK_TIME
+                    bt.logging.info(
+                        f"{WARN}⏳ Too soon to set weights. Waiting {self.config.set_weights_interval} blocks "
+                        f"({sleep_time}s) before retry...{Style.RESET_ALL}"
+                    )
+                    time.sleep(sleep_time)
+                else:
+                    # For non-benign errors, short sleep before retry
+                    bt.logging.debug("Sleeping 10 seconds before retry due to weight error.")
+                    time.sleep(10)
+
                 continue
 
             bt.logging.success(f"{OK}✅ Weights set successfully.{Style.RESET_ALL}")
