@@ -8,11 +8,15 @@ hotkey and, on each epoch, transfers the aggregated stake to a destination coldk
 
 from __future__ import annotations
 
+import atexit
+import os
 import signal
 import sys
 from dataclasses import dataclass
 from threading import Event
 from typing import Iterable, Optional
+
+from getpass import getpass
 
 import bittensor as bt
 from bittensor.utils.balance import Balance
@@ -30,6 +34,90 @@ OK = Fore.GREEN
 ACCENT = Fore.MAGENTA
 
 stop_event = Event()
+
+_PASSWORD_CACHE: dict[str, str] = {}
+_PRIMARY_PASSWORD: Optional[str] = None
+_PASSWORD_ENV_VARS: set[str] = set()
+
+
+def _clear_password_env_vars() -> None:
+    """
+    Remove cached wallet passwords from the environment on shutdown.
+    """
+    global _PRIMARY_PASSWORD
+    for env_var in list(_PASSWORD_ENV_VARS):
+        os.environ.pop(env_var, None)
+    _PASSWORD_ENV_VARS.clear()
+    _PASSWORD_CACHE.clear()
+    _PRIMARY_PASSWORD = None
+
+
+atexit.register(_clear_password_env_vars)
+
+
+def ensure_wallet_password_cached(wallet: "bt.wallet") -> None:
+    """
+    Prompt for the wallet password once and cache it for subsequent keyfile unlocks.
+    """
+    global _PRIMARY_PASSWORD
+
+    keyfiles: list = []
+
+    try:
+        coldkey_file = wallet.coldkey_file
+    except Exception:  # pylint: disable=broad-except
+        coldkey_file = None
+    if coldkey_file is not None:
+        try:
+            if coldkey_file.exists_on_device() and coldkey_file.is_encrypted():
+                keyfiles.append(coldkey_file)
+        except Exception:  # pylint: disable=broad-except
+            bt.logging.debug("Coldkey file encryption check failed; continuing without caching.")
+
+    try:
+        hotkey_file = wallet.hotkey_file
+    except Exception:  # pylint: disable=broad-except
+        hotkey_file = None
+    if hotkey_file is not None:
+        try:
+            if hotkey_file.exists_on_device() and hotkey_file.is_encrypted():
+                keyfiles.append(hotkey_file)
+        except Exception:  # pylint: disable=broad-except
+            bt.logging.debug("Hotkey file encryption check failed; continuing without caching.")
+
+    if not keyfiles:
+        return
+
+    for keyfile in keyfiles:
+        env_var = getattr(keyfile, "env_var_name", None)
+        if not env_var:
+            continue
+        if env_var in os.environ:
+            continue
+
+        cached_password = _PASSWORD_CACHE.get(env_var)
+        if cached_password is None:
+            if _PRIMARY_PASSWORD is None:
+                wallet_label = getattr(wallet, "name", None)
+                if not wallet_label:
+                    try:
+                        wallet_label = wallet.coldkeypub.ss58_address
+                    except Exception:  # pylint: disable=broad-except
+                        wallet_label = None
+                wallet_label = wallet_label or "wallet"
+                while True:
+                    _PRIMARY_PASSWORD = getpass(f"Enter password to unlock wallet {wallet_label}: ")
+                    if _PRIMARY_PASSWORD:
+                        break
+                    bt.logging.warning(
+                        f"{WARN}⚠️ Wallet password cannot be empty; please try again.{Style.RESET_ALL}"
+                    )
+            cached_password = _PRIMARY_PASSWORD
+            _PASSWORD_CACHE[env_var] = cached_password
+
+        os.environ[env_var] = cached_password
+        _PASSWORD_ENV_VARS.add(env_var)
+        bt.logging.debug(f"Stored wallet password in environment variable {env_var} for auto-unlock.")
 
 
 def register_signal_handlers() -> None:
@@ -292,6 +380,7 @@ def main() -> None:
     register_signal_handlers()
 
     wallet = bt.wallet(config=config)
+    ensure_wallet_password_cached(wallet)
     subtensor = bt.subtensor(config=config)
     bt.logging.debug(f"Subtensor connection established to network {subtensor.network}.")
 

@@ -5,9 +5,14 @@ Bittensor network or wallet files.
 
 from __future__ import annotations
 
+import os
+import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
+
+# Ensure the current directory is in the Python path for module discovery
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bittensor.utils.balance import Balance
 
@@ -33,12 +38,24 @@ class FakeWallet:
         self.hotkey_name = hotkey or "mock_hotkey"
         self.coldkeypub = SimpleNamespace(ss58_address=f"cold-{self.name}")
         self.hotkey = SimpleNamespace(ss58_address=f"hot-{self.hotkey_name}")
+        self._coldkey_env = f"BT_PW_{self.name.upper()}_COLD"
+        self._hotkey_env = f"BT_PW_{self.name.upper()}_HOT"
+        self._coldkey_file = _FakeKeyfile(self._coldkey_env)
+        self._hotkey_file = _FakeKeyfile(self._hotkey_env)
 
     def unlock_coldkey(self):
         return None
 
     def unlock_hotkey(self):
         return None
+
+    @property
+    def coldkey_file(self):
+        return self._coldkey_file
+
+    @property
+    def hotkey_file(self):
+        return self._hotkey_file
 
     @staticmethod
     def add_args(parser):
@@ -49,6 +66,19 @@ class FakeWallet:
 
 def fake_bt_wallet(*, config=None, **kwargs) -> FakeWallet:
     return FakeWallet(config=config, **kwargs)
+
+
+class _FakeKeyfile:
+    """Minimal keyfile stub that mimics encrypted keyfiles for password caching."""
+
+    def __init__(self, env_var_name: str):
+        self.env_var_name = env_var_name
+
+    def exists_on_device(self) -> bool:
+        return True
+
+    def is_encrypted(self) -> bool:
+        return True
 
 
 class FakeSubtensor:
@@ -240,10 +270,20 @@ class MockFlowTest(unittest.TestCase):
             ),
         )
 
+        cold_env = f"BT_PW_{miner_config.wallet.name.upper()}_COLD"
+        hot_env = f"BT_PW_{miner_config.wallet.name.upper()}_HOT"
+        os.environ.pop(cold_env, None)
+        os.environ.pop(hot_env, None)
+
         with patch.object(miner.bt, "subtensor", factory), patch.object(miner.bt, "wallet", fake_bt_wallet):
             with patch.object(miner, "stop_event", fake_event), patch("neuron.miner.signal.signal"):
                 with patch.object(miner, "parse_miner_config", return_value=miner_config):
                     miner.main()
+
+        cold_cached = os.environ.get(cold_env)
+        hot_cached = os.environ.get(hot_env)
+        self.assertTrue(cold_cached, "Coldkey password should be cached in environment after manual entry.")
+        self.assertTrue(hot_cached, "Hotkey password should be cached in environment after manual entry.")
 
         sub = factory.instances[-1]
         self.assertGreaterEqual(
@@ -262,6 +302,9 @@ class MockFlowTest(unittest.TestCase):
             0,
             "Aggregator stake should be emptied after transfer in the mock flow.",
         )
+        miner._clear_password_env_vars()
+        self.assertIsNone(os.environ.get(cold_env))
+        self.assertIsNone(os.environ.get(hot_env))
 
 
 class ConfigParsingTests(unittest.TestCase):
