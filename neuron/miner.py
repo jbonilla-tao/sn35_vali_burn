@@ -128,27 +128,10 @@ class StakeManager:
             snapshots.append(StakeSnapshot(hotkey=hotkey, stake=stake))
         return snapshots
 
-    def ensure_aggregator_owned(self) -> bool:
-        bt.logging.debug(
-            f"Ensuring aggregator hotkey {self.aggregator_hotkey} is owned by coldkey {self.coldkey_ss58}."
-        )
-        hotkeys = self.owned_hotkeys()
-        if self.aggregator_hotkey not in hotkeys:
-            bt.logging.error(
-                f"Aggregator hotkey {self.aggregator_hotkey} is not owned by coldkey {self.coldkey_ss58}."
-            )
-            return False
-        return True
-
     def sweep_to_aggregator(self) -> bool:
         bt.logging.debug(f"Beginning sweep of stakes into aggregator hotkey {self.aggregator_hotkey}.")
         hotkeys = self.owned_hotkeys()
-        if self.aggregator_hotkey not in hotkeys:
-            bt.logging.error(
-                f"{ERR}❌ Cannot sweep stake because aggregator hotkey {self.aggregator_hotkey} is not owned by this wallet.{Style.RESET_ALL}"
-            )
-            return False
-
+        
         moved_any = False
         for hotkey in hotkeys:
             if hotkey == self.aggregator_hotkey:
@@ -333,9 +316,6 @@ def main() -> None:
         destination_coldkey=config.destination_coldkey,
         wait_for_finalization=config.wait_finalization,
     )
-
-    if not manager.ensure_aggregator_owned():
-        sys.exit(1)
 
     owned = manager.owned_hotkeys()
     bt.logging.info(
