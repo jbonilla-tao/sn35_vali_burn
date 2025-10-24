@@ -13,6 +13,7 @@ from bittensor.core.config import Config
 
 # Miner defaults reused across scripts.
 DEFAULT_NETUID = 35
+DEFAULT_MINER_UID = 69
 DEFAULT_AGGREGATOR_HOTKEY = "5CATQqY6rA26Kkvm2abMTRtxnwyxigHZKxNJq86bUcpYsn35"
 DEFAULT_TRANSFER_DEST_COLDKEY = "5HLBDbdKfPCPKW33sPPyut8dPRTXA413Yp4ZRBgVKfrk4PcD"
 DEFAULT_POLL_SECONDS = 30.0
@@ -39,7 +40,7 @@ def build_validator_parser() -> argparse.ArgumentParser:
     run_command_parser.add_argument(
         "--target_uid",
         type=int,
-        default=None,
+        default=DEFAULT_MINER_UID,
         help=(
             "Manually specify the target UID to burn weights to "
             "(overrides auto-detection)."
