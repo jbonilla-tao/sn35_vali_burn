@@ -110,6 +110,20 @@ Key flags:
 
 Both scripts reuse wallet/subtensor argument helpers from the shared `config.py`.
 
+#### Launching with GCP Secret Manager
+
+If the wallet password lives in Google Secret Manager you can use the helper launcher in `scripts/run_miner_with_secret.py`:
+
+```bash
+pip install -r requirements.txt  # ensure google-cloud-secret-manager is available
+python scripts/run_miner_with_secret.py \
+  --secret-id projects/<project>/secrets/<secret-name> \
+  --version latest \
+  -- --netuid 35 --wallet.name <wallet> --wallet.hotkey <hotkey> --logging.debug
+```
+
+The script fetches the secret, exports it as `MINER_WALLET_PASSWORD`, and then execs `neuron.miner` with the arguments supplied after `--`. Use `--project` if you prefer passing the short secret name rather than the full resource ID, and `--password-env` to change the target environment variable.
+
 ### Mock Flow Test
 
 To exercise the validator and miner logic without touching a real Bittensor node, run the mock test:

@@ -2,3 +2,4 @@ bittensor
 bittensor-wallet
 python-statemachine
 colorama
+google-cloud-secret-manager
