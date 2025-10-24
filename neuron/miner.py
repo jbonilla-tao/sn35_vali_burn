@@ -18,7 +18,7 @@ import bittensor as bt
 from bittensor.utils.balance import Balance
 from bittensor_wallet.errors import KeyFileError, PasswordError
 
-from config import parse_miner_config
+from utils.config import parse_miner_config
 from colorama import Fore, Style, init as colorama_init
 
 colorama_init(autoreset=True)

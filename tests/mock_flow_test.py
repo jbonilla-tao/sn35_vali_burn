@@ -11,9 +11,9 @@ from unittest.mock import patch
 
 from bittensor.utils.balance import Balance
 
-import miner
-import validator
-import config
+import neuron.miner as miner
+import neuron.validator as validator
+import utils.config as config
 
 
 class TestComplete(RuntimeError):
@@ -215,7 +215,7 @@ class MockFlowTest(unittest.TestCase):
 
         with patch.object(validator, "Wallet", FakeWallet), patch.object(validator.bt, "subtensor", factory):
             with patch.object(validator, "parse_validator_config", return_value=validator_config):
-                with patch("validator.time.sleep", side_effect=TestComplete):
+                with patch("neuron.validator.time.sleep", side_effect=TestComplete):
                     validator_instance = validator.TempValidator()
                     with self.assertRaises(TestComplete):
                         validator_instance.run()
@@ -241,7 +241,7 @@ class MockFlowTest(unittest.TestCase):
         )
 
         with patch.object(miner.bt, "subtensor", factory), patch.object(miner.bt, "wallet", fake_bt_wallet):
-            with patch.object(miner, "stop_event", fake_event), patch("miner.signal.signal"):
+            with patch.object(miner, "stop_event", fake_event), patch("neuron.miner.signal.signal"):
                 with patch.object(miner, "parse_miner_config", return_value=miner_config):
                     miner.main()
 

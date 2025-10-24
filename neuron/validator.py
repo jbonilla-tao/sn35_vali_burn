@@ -3,7 +3,7 @@ import time
 import bittensor as bt
 from bittensor_wallet import Wallet
 
-from config import parse_validator_config
+from utils.config import parse_validator_config
 from colorama import Fore, Style, init as colorama_init
 
 colorama_init(autoreset=True)
