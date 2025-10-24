@@ -46,7 +46,7 @@ flowchart LR
 
 ```bash
 python neuron/validator.py run \
-  --netuid <subnet-id> \
+  --netuid 35 \
   --wallet.name <wallet-name> \
   --wallet.hotkey <hotkey-name> \
   --target_uid <optional-uid> \
