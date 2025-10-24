@@ -44,6 +44,7 @@ flowchart LR
 
 ### Validator loop
 
+**Basic usage:**
 ```bash
 python neuron/validator.py run \
   --netuid 35 \
@@ -53,11 +54,35 @@ python neuron/validator.py run \
   --logging.debug
 ```
 
+**With Slack notifications:**
+```bash
+python neuron/validator.py run \
+  --netuid 35 \
+  --wallet.name <wallet-name> \
+  --wallet.hotkey <hotkey-name> \
+  --slack_webhook_url "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
+  --logging.debug
+```
+
+**With local subtensor:**
+```bash
+python neuron/validator.py run \
+  --netuid 35 \
+  --wallet.name <wallet-name> \
+  --wallet.hotkey <hotkey-name> \
+  --subtensor.network local \
+  --subtensor.chain_endpoint ws://127.0.0.1:9946 \
+  --logging.debug
+```
+
 Key flags:
 
 - `--netuid` (required): subnet to validate on.
 - `--target_uid`: override the auto-selected burn UID.
 - `--set_weights_interval`: number of blocks between weight updates (default two epochs).
+- `--slack_webhook_url`: Slack webhook URL for notifications (alerts for registration failures, no permit events, weight setting errors/successes, and daily summaries).
+- `--subtensor.network`: network to connect to (`finney`, `test`, or `local`).
+- `--subtensor.chain_endpoint`: custom chain endpoint (e.g., `ws://127.0.0.1:9946` for local subtensor).
 - `--logging.debug` / `--logging.trace`: enable progressively more verbose Bittensor logging for full visibility into each validator action.
   - Logging defaults to INFO if no flag is provided.
 
