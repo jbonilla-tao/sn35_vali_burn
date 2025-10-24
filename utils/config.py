@@ -53,6 +53,14 @@ def build_validator_parser() -> argparse.ArgumentParser:
         default=360 * 2,  # 2 epochs
         help="The interval to set weights in blocks.",
     )
+
+    run_command_parser.add_argument(
+        "--slack_webhook_url",
+        type=str,
+        default=None,
+        help="Send Slack alerts here",
+    )
+
     bt.subtensor.add_args(run_command_parser)
     Wallet.add_args(run_command_parser)
     bt.logging.add_args(run_command_parser)
