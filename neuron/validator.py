@@ -4,6 +4,7 @@ import bittensor as bt
 from bittensor_wallet import Wallet
 
 from utils.config import parse_validator_config
+from utils.slack_notifier import SlackNotifier
 from colorama import Fore, Style, init as colorama_init
 
 colorama_init(autoreset=True)
@@ -30,6 +31,18 @@ class TempValidator:
         # Initialize wallet.
         self.wallet = Wallet(config=self.config)
         bt.logging.info(f"{INFO}🔑 Wallet:{Style.RESET_ALL} {self.wallet}")
+
+        # Initialize SlackNotifier with hotkey and is_miner=False
+        if self.config.slack_webhook_url is not None:
+            self.slack_notifier = SlackNotifier(
+                hotkey=self.wallet.hotkey.ss58_address,
+                webhook_url=self.config.slack_webhook_url,
+                is_miner=False
+            )
+            bt.logging.info(f"{OK}📱 Slack notifications enabled{Style.RESET_ALL}")
+        else:
+            self.slack_notifier = None
+            bt.logging.info(f"{WARN}📱 Slack notifications disabled{Style.RESET_ALL}")
 
         # Initialize subtensor.
         self.subtensor = bt.subtensor(config=self.config)
@@ -78,6 +91,8 @@ class TempValidator:
 
             if not registered:
                 bt.logging.warning(f"{WARN}⚠️ Hotkey not registered; sleeping before retry.{Style.RESET_ALL}")
+                if self.slack_notifier:
+                    self.slack_notifier.record_registration_failure()
                 time.sleep(10)
                 continue
 
@@ -95,6 +110,10 @@ class TempValidator:
             bt.logging.info(f"{INFO}🎫 Validator permit:{Style.RESET_ALL} {validator_permits[this_uid]}")
             if not validator_permits[this_uid]:
                 bt.logging.warning(f"{WARN}⏳ Validator permit missing; waiting for next epoch.{Style.RESET_ALL}")
+                if self.slack_notifier:
+                    self.slack_notifier.record_no_permit_event()
+                    msg = f"Validator {self.wallet.hotkey.ss58_address} (uid {this_uid}) has no permit on subnet {self.config.netuid}. Sleeping until next epoch."
+                    self.slack_notifier.send_message(msg, level="warning")
                 bt.logging.debug("Fetching tempo and blocks since last step for sleep calculation.")
                 curr_block = self.subtensor.get_current_block()
                 tempo = self.subtensor.query_subtensor(
@@ -157,12 +176,29 @@ class TempValidator:
             )
             if not success:
                 bt.logging.error(f"{ERR}❌ Error setting weights:{Style.RESET_ALL} {message}")
+
+                # Track failure and send alerts
+                if self.slack_notifier:
+                    should_alert, failure_type = self.slack_notifier.record_weight_set_failure(message)
+                    if should_alert:
+                        self.slack_notifier.send_weight_failure_alert(
+                            error_msg=message,
+                            failure_type=failure_type,
+                            netuid=self.config.netuid
+                        )
+
                 bt.logging.debug("Sleeping 10 seconds before retry due to weight error.")
                 time.sleep(10)
                 continue
 
             bt.logging.success(f"{OK}✅ Weights set successfully.{Style.RESET_ALL}")
             bt.logging.debug(f"Weights successfully set for uids={uids} on netuid {self.config.netuid}.")
+
+            # Track success and send recovery alert if needed
+            if self.slack_notifier:
+                should_send_recovery = self.slack_notifier.record_weight_set_success()
+                if should_send_recovery:
+                    self.slack_notifier.send_weight_recovery_alert(netuid=self.config.netuid)
 
             # Wait for next time to set weights.
             bt.logging.info(
