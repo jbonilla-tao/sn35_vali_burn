@@ -45,6 +45,7 @@ flowchart LR
 ### Validator loop
 
 **Basic usage:**
+
 ```bash
 python neuron/validator.py run \
   --netuid 35 \
@@ -55,6 +56,7 @@ python neuron/validator.py run \
 ```
 
 **With Slack notifications:**
+
 ```bash
 python neuron/validator.py run \
   --netuid 35 \
@@ -65,6 +67,7 @@ python neuron/validator.py run \
 ```
 
 **With local subtensor:**
+
 ```bash
 python neuron/validator.py run \
   --netuid 35 \
