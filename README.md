@@ -79,7 +79,7 @@ Key flags:
 
 - `--netuid` (required): subnet to validate on.
 - `--target_uid`: override the auto-selected burn UID.
-- `--set_weights_interval`: number of blocks between weight updates (default two epochs).
+- `--set_weights_interval`: number of blocks between weight updates (default two epochs = 720 blocks). The validator respects this interval and will wait the full duration if weights are set too soon. At ~12 seconds per block, 720 blocks = ~2.4 hours.
 - `--slack_webhook_url`: Slack webhook URL for notifications (alerts for registration failures, no permit events, weight setting errors/successes, and daily summaries).
 - `--subtensor.network`: network to connect to (`finney`, `test`, or `local`).
 - `--subtensor.chain_endpoint`: custom chain endpoint (e.g., `ws://127.0.0.1:9946` for local subtensor).
