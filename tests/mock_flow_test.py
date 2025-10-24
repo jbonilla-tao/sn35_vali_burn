@@ -16,7 +16,7 @@ import neuron.validator as validator
 import utils.config as config
 
 
-class TestComplete(RuntimeError):
+class FlowHalt(RuntimeError):
     """Raised to halt an infinite loop once the scenario has been exercised."""
 
 
@@ -215,9 +215,9 @@ class MockFlowTest(unittest.TestCase):
 
         with patch.object(validator, "Wallet", FakeWallet), patch.object(validator.bt, "subtensor", factory):
             with patch.object(validator, "parse_validator_config", return_value=validator_config):
-                with patch("neuron.validator.time.sleep", side_effect=TestComplete):
+                with patch("neuron.validator.time.sleep", side_effect=FlowHalt):
                     validator_instance = validator.TempValidator()
-                    with self.assertRaises(TestComplete):
+                    with self.assertRaises(FlowHalt):
                         validator_instance.run()
 
         sub = factory.instances[-1]
