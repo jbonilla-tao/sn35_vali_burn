@@ -68,9 +68,6 @@ python miner.py \
   --netuid 35 \
   --wallet.name <wallet-name> \
   --wallet.hotkey <hotkey-name> \
-  --aggregator-hotkey 5CATQ... \
-  --destination-coldkey 5HLBD... \
-  --poll-interval 30 \
   --logging.debug
 ```
 
