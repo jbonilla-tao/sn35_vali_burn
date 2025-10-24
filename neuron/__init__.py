@@ -1,10 +1,3 @@
-<<<<<<< Updated upstream
-# Neuron package for liquidity flow controller
-=======
-"""
-Neuron package exposes miner and validator entrypoints for liquidity flow control.
-"""
+"""Neuron package exposing miner and validator entrypoints."""
 
 __all__ = ["miner", "validator"]
-
->>>>>>> Stashed changes

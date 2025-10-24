@@ -73,12 +73,21 @@ class _FakeKeyfile:
 
     def __init__(self, env_var_name: str):
         self.env_var_name = env_var_name
+        self._password = None
 
     def exists_on_device(self) -> bool:
         return True
 
     def is_encrypted(self) -> bool:
         return True
+
+    def save_password_to_env(self, password: str) -> None:
+        os.environ[self.env_var_name] = password
+        self._password = password
+
+    def remove_password_from_env(self) -> None:
+        os.environ.pop(self.env_var_name, None)
+        self._password = None
 
 
 class FakeSubtensor:
@@ -241,6 +250,7 @@ class MockFlowTest(unittest.TestCase):
             logging=SimpleNamespace(
                 debug=True, trace=False, info=False, record_log=False, logging_dir="~/.bittensor/miners"
             ),
+            slack_webhook_url=None,
         )
 
         with patch.object(validator, "Wallet", FakeWallet), patch.object(validator.bt, "subtensor", factory):
@@ -278,7 +288,8 @@ class MockFlowTest(unittest.TestCase):
         with patch.object(miner.bt, "subtensor", factory), patch.object(miner.bt, "wallet", fake_bt_wallet):
             with patch.object(miner, "stop_event", fake_event), patch("neuron.miner.signal.signal"):
                 with patch.object(miner, "parse_miner_config", return_value=miner_config):
-                    miner.main()
+                    with patch("neuron.miner.load_wallet_password_from_env", return_value="mockpass"):
+                        miner.main()
 
         cold_cached = os.environ.get(cold_env)
         hot_cached = os.environ.get(hot_env)

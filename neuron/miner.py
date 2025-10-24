@@ -17,6 +17,7 @@ from threading import Event
 from typing import Iterable, Optional
 
 from getpass import getpass
+from pathlib import Path
 
 import bittensor as bt
 from bittensor.utils.balance import Balance
@@ -55,67 +56,179 @@ def _clear_password_env_vars() -> None:
 atexit.register(_clear_password_env_vars)
 
 
-def ensure_wallet_password_cached(wallet: "bt.wallet") -> None:
+def _load_env_file(path: Path) -> None:
     """
-    Prompt for the wallet password once and cache it for subsequent keyfile unlocks.
+    Load key=value pairs from a .env-style file into the process environment.
     """
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.lower().startswith("export "):
+                    line = line[7:].strip()
+                key, sep, value = line.partition("=")
+                if not sep:
+                    continue
+                key = key.strip()
+                value = value.strip()
+                if not key:
+                    continue
+                if value and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                os.environ[key] = value
+        bt.logging.debug(f"Loaded environment variables from {path}.")
+    except FileNotFoundError:
+        bt.logging.debug(f"No .env file found at {path}; skipping.")
+    except Exception as exc:  # pylint: disable=broad-except
+        bt.logging.warning(f"{WARN}⚠️ Failed to load env file {path}:{Style.RESET_ALL} {exc}")
+
+
+def load_wallet_password_from_env(env_var: str, env_file: Optional[str]) -> Optional[str]:
+    """
+    Resolve the wallet password from environment variables (optionally seeding from a .env file).
+    """
+    env_var = (env_var or "MINER_WALLET_PASSWORD").strip() or "MINER_WALLET_PASSWORD"
+
+    password = os.environ.get(env_var)
+    if password:
+        return password.strip()
+
+    candidate_paths: list[Path] = []
+    if env_file:
+        candidate_paths.append(Path(env_file).expanduser())
+    env_hint = os.environ.get("MINER_ENV_FILE")
+    if env_hint:
+        candidate_paths.append(Path(env_hint).expanduser())
+    candidate_paths.append(Path.cwd() / ".env")
+    candidate_paths.append(Path(__file__).resolve().parents[1] / ".env")
+
+    seen: set[Path] = set()
+    for candidate in candidate_paths:
+        try:
+            resolved = candidate.resolve()
+        except Exception:  # pylint: disable=broad-except
+            continue
+        if resolved in seen or not resolved.is_file():
+            continue
+        seen.add(resolved)
+        _load_env_file(resolved)
+        password = os.environ.get(env_var)
+        if password:
+            return password.strip()
+    return None
+
+
+def ensure_wallet_password_cached(
+    wallet: "bt.wallet",
+    password_source: Optional[str] = None,
+    password_value: Optional[str] = None,
+) -> None:
+    """Prompt for the wallet password once and cache it for subsequent keyfile unlocks."""
+
     global _PRIMARY_PASSWORD
+
+    if password_value and _PRIMARY_PASSWORD is None:
+        stripped = password_value.strip()
+        if stripped:
+            _PRIMARY_PASSWORD = stripped
 
     keyfiles: list = []
 
-    try:
-        coldkey_file = wallet.coldkey_file
-    except Exception:  # pylint: disable=broad-except
-        coldkey_file = None
-    if coldkey_file is not None:
+    for attr in ("coldkey_file", "hotkey_file"):
         try:
-            if coldkey_file.exists_on_device() and coldkey_file.is_encrypted():
-                keyfiles.append(coldkey_file)
+            file_obj = getattr(wallet, attr)
         except Exception:  # pylint: disable=broad-except
-            bt.logging.debug("Coldkey file encryption check failed; continuing without caching.")
-
-    try:
-        hotkey_file = wallet.hotkey_file
-    except Exception:  # pylint: disable=broad-except
-        hotkey_file = None
-    if hotkey_file is not None:
+            file_obj = None
+        if file_obj is None:
+            continue
         try:
-            if hotkey_file.exists_on_device() and hotkey_file.is_encrypted():
-                keyfiles.append(hotkey_file)
+            if file_obj.exists_on_device() and file_obj.is_encrypted():
+                keyfiles.append(file_obj)
         except Exception:  # pylint: disable=broad-except
-            bt.logging.debug("Hotkey file encryption check failed; continuing without caching.")
+            bt.logging.debug(f"Keyfile encryption check failed for {attr}; continuing without caching.")
 
     if not keyfiles:
         return
 
     for keyfile in keyfiles:
-        env_var = getattr(keyfile, "env_var_name", None)
+        env_attr = getattr(keyfile, "env_var_name", None)
+        if not env_attr:
+            continue
+
+        if callable(env_attr):
+            try:
+                env_var = env_attr()
+            except TypeError:
+                env_var = None
+        else:
+            env_var = env_attr
+
         if not env_var:
             continue
-        if env_var in os.environ:
-            continue
+
+        env_var = str(env_var)
 
         cached_password = _PASSWORD_CACHE.get(env_var)
         if cached_password is None:
             if _PRIMARY_PASSWORD is None:
-                wallet_label = getattr(wallet, "name", None)
-                if not wallet_label:
+                if password_source:
                     try:
-                        wallet_label = wallet.coldkeypub.ss58_address
-                    except Exception:  # pylint: disable=broad-except
-                        wallet_label = None
-                wallet_label = wallet_label or "wallet"
-                while True:
-                    _PRIMARY_PASSWORD = getpass(f"Enter password to unlock wallet {wallet_label}: ")
-                    if _PRIMARY_PASSWORD:
-                        break
-                    bt.logging.warning(
-                        f"{WARN}⚠️ Wallet password cannot be empty; please try again.{Style.RESET_ALL}"
-                    )
+                        password_path = Path(password_source).expanduser()
+                        file_password = password_path.read_text(encoding="utf-8").strip()
+                        if file_password:
+                            _PRIMARY_PASSWORD = file_password
+                            bt.logging.debug(f"Loaded wallet password from file {password_path}.")
+                        else:
+                            bt.logging.error(
+                                f"{ERR}❌ Wallet password file {password_path} is empty; cannot unlock wallet.{Style.RESET_ALL}"
+                            )
+                    except Exception as exc:  # pylint: disable=broad-except
+                        bt.logging.error(
+                            f"{ERR}❌ Failed to read wallet password file {password_source}:{Style.RESET_ALL} {exc}"
+                        )
+                if _PRIMARY_PASSWORD is None:
+                    wallet_label = getattr(wallet, "name", None)
+                    if not wallet_label:
+                        try:
+                            wallet_label = wallet.coldkeypub.ss58_address
+                        except Exception:  # pylint: disable=broad-except
+                            wallet_label = None
+                    wallet_label = wallet_label or "wallet"
+                    while True:
+                        try:
+                            _PRIMARY_PASSWORD = getpass(f"Enter password to unlock wallet {wallet_label}: ")
+                        except (EOFError, OSError) as exc:
+                            bt.logging.error(
+                                f"{ERR}❌ Unable to prompt for wallet password (no interactive TTY). "
+                                f"Provide --wallet-password-file, --wallet-password-env, or a .env file.{Style.RESET_ALL}"
+                            )
+                            raise SystemExit(1) from exc
+                        if _PRIMARY_PASSWORD:
+                            break
+                        bt.logging.warning(
+                            f"{WARN}⚠️ Wallet password cannot be empty; please try again.{Style.RESET_ALL}"
+                        )
             cached_password = _PRIMARY_PASSWORD
             _PASSWORD_CACHE[env_var] = cached_password
 
-        os.environ[env_var] = cached_password
+        if cached_password is None:
+            bt.logging.error(
+                f"{ERR}❌ Wallet password could not be determined for environment variable {env_var}.{Style.RESET_ALL}"
+            )
+            raise SystemExit(1)
+
+        try:
+            keyfile.save_password_to_env(cached_password)
+        except AttributeError:
+            os.environ[env_var] = cached_password
+        except Exception as exc:  # pylint: disable=broad-except
+            bt.logging.error(
+                f"{ERR}❌ Failed to store wallet password for {env_var}:{Style.RESET_ALL} {exc}"
+            )
+            raise SystemExit(1) from exc
+
         _PASSWORD_ENV_VARS.add(env_var)
         bt.logging.debug(f"Stored wallet password in environment variable {env_var} for auto-unlock.")
 
@@ -380,7 +493,15 @@ def main() -> None:
     register_signal_handlers()
 
     wallet = bt.wallet(config=config)
-    ensure_wallet_password_cached(wallet)
+    env_file = getattr(config, "env_file", None)
+    password_env_var = getattr(config, "wallet_password_env", "MINER_WALLET_PASSWORD")
+    password_file = getattr(config, "wallet_password_file", None)
+    password_value = load_wallet_password_from_env(password_env_var, env_file)
+    ensure_wallet_password_cached(
+        wallet,
+        password_source=password_file,
+        password_value=password_value,
+    )
     subtensor = bt.subtensor(config=config)
     bt.logging.debug(f"Subtensor connection established to network {subtensor.network}.")
 
