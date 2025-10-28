@@ -38,15 +38,14 @@ class SlackNotifier:
 
         # Daily metrics (reset each day)
         if self.is_miner:
+            # Stake sweeper metrics
             self.daily_metrics = {
-                "signals_processed": 0,
-                "signals_failed": 0,
-                "validator_response_times": [],  # All individual validator response times in ms
-                "validator_counts": [],
-                "trade_pair_counts": defaultdict(int),
-                "successful_validators": set(),
-                "error_categories": defaultdict(int),
-                "failing_validators": defaultdict(int)
+                "stake_sweeps_count": 0,
+                "stake_sweeps_failed": 0,
+                "stake_transfers_count": 0,
+                "stake_transfers_failed": 0,
+                "total_stake_swept": 0.0,  # in TAO
+                "total_stake_transferred": 0.0,  # in TAO
             }
         else:
             # Validator-specific metrics
@@ -113,7 +112,8 @@ class SlackNotifier:
         # Default metrics
         if self.is_miner:
             return {
-                "total_lifetime_signals": 0,
+                "total_lifetime_stake_swept": 0.0,
+                "total_lifetime_stake_transferred": 0.0,
                 "total_uptime_seconds": 0,
                 "last_shutdown_time": None
             }
@@ -143,21 +143,6 @@ class SlackNotifier:
                 json.dump(self.lifetime_metrics, f)
         except Exception as e:
             bt.logging.error(f"Failed to save lifetime metrics: {e}")
-
-    def _categorize_error(self, error_message: str) -> str:
-        """Categorize error messages"""
-        error_lower = error_message.lower()
-
-        if any(keyword in error_lower for keyword in ['timeout', 'timed out', 'time out']):
-            return "Timeout"
-        elif any(keyword in error_lower for keyword in ['connection', 'connect', 'refused', 'unreachable']):
-            return "Connection Failed"
-        elif any(keyword in error_lower for keyword in ['invalid', 'decode', 'parse', 'json', 'format']):
-            return "Invalid Response"
-        elif any(keyword in error_lower for keyword in ['network', 'dns', 'resolve']):
-            return "Network Error"
-        else:
-            return "Other"
 
     def _start_daily_summary_thread(self):
         """Start the daily summary thread"""
@@ -329,53 +314,22 @@ class SlackNotifier:
                 bt.logging.error(f"Failed to send daily summary: {e}")
 
     def _send_daily_summary_miner(self):
-        """Send daily summary report"""
+        """Send daily summary report for stake sweeper miners"""
         with self.daily_summary_lock:
             try:
                 # Calculate uptime
                 uptime_str = self._get_uptime_str()
 
-                # Validator response time stats
-                response_times = self.daily_metrics["validator_response_times"]
-                if response_times:
-                    best_response_time = min(response_times)
-                    worst_response_time = max(response_times)
-                    avg_response_time = sum(response_times) / len(response_times)
-                    # Calculate median
-                    sorted_times = sorted(response_times)
-                    n = len(sorted_times)
-                    median_response_time = (sorted_times[n // 2] + sorted_times[(n - 1) // 2]) / 2
-                    # Calculate 95th percentile
-                    p95_index = int(0.95 * n)
-                    p95_response_time = sorted_times[min(p95_index, n - 1)]
-                else:
-                    best_response_time = worst_response_time = avg_response_time = median_response_time = p95_response_time = 0
+                # Calculate success rates
+                sweep_success_rate = 0.0
+                total_sweeps = self.daily_metrics["stake_sweeps_count"] + self.daily_metrics["stake_sweeps_failed"]
+                if total_sweeps > 0:
+                    sweep_success_rate = (self.daily_metrics["stake_sweeps_count"] / total_sweeps) * 100
 
-                # Validator count stats
-                val_counts = self.daily_metrics["validator_counts"]
-                if val_counts:
-                    min_validators = min(val_counts)
-                    max_validators = max(val_counts)
-                    avg_validators = sum(val_counts) / len(val_counts)
-                else:
-                    min_validators = max_validators = avg_validators = 0
-
-                # Success rate
-                total_today = self.daily_metrics["signals_processed"]
-                failed_today = self.daily_metrics["signals_failed"]
-                success_rate = ((total_today - failed_today) / max(1, total_today)) * 100
-
-                # Trade pair breakdown (top 10)
-                trade_pairs = sorted(
-                    self.daily_metrics["trade_pair_counts"].items(),
-                    key=lambda x: x[1],
-                    reverse=True
-                )[:10]
-                trade_pair_str = ", ".join([f"{pair}: {count}" for pair, count in trade_pairs]) or "None"
-
-                # Error category breakdown
-                error_categories = dict(self.daily_metrics["error_categories"])
-                error_str = ", ".join([f"{cat}: {count}" for cat, count in error_categories.items()]) or "None"
+                transfer_success_rate = 0.0
+                total_transfers = self.daily_metrics["stake_transfers_count"] + self.daily_metrics["stake_transfers_failed"]
+                if total_transfers > 0:
+                    transfer_success_rate = (self.daily_metrics["stake_transfers_count"] / total_transfers) * 100
 
                 fields = [
                     {
@@ -394,38 +348,33 @@ class SlackNotifier:
                         "short": True
                     },
                     {
-                        "title": "📈 Lifetime Signals",
-                        "value": str(self.lifetime_metrics["total_lifetime_signals"]),
-                        "short": True
-                    },
-                    {
-                        "title": "📅 Today's Signals",
-                        "value": str(total_today),
-                        "short": True
-                    },
-                    {
-                        "title": "✅ Success Rate",
-                        "value": f"{success_rate:.1f}%",
-                        "short": True
-                    },
-                    {
-                        "title": "⚡ Validator Response Times (ms)",
-                        "value": f"Best: {best_response_time:.0f}ms\nWorst: {worst_response_time:.0f}ms\nAvg: {avg_response_time:.0f}ms\nMedian: {median_response_time:.0f}ms\n95th %ile: {p95_response_time:.0f}ms",
-                        "short": True
-                    },
-                    {
-                        "title": "🔗 Validator Counts",
-                        "value": f"Min: {min_validators}\nMax: {max_validators}\nAvg: {avg_validators:.1f}",
-                        "short": True
-                    },
-                    {
-                        "title": "💱 Trade Pairs",
-                        "value": trade_pair_str,
+                        "title": "🔄 Stake Sweeps",
+                        "value": f"Success: {self.daily_metrics['stake_sweeps_count']}, Failed: {self.daily_metrics['stake_sweeps_failed']}, Rate: {sweep_success_rate:.1f}%",
                         "short": False
                     },
                     {
-                        "title": "✨ Unique Validators",
-                        "value": str(len(self.daily_metrics["successful_validators"])),
+                        "title": "🚚 Stake Transfers",
+                        "value": f"Success: {self.daily_metrics['stake_transfers_count']}, Failed: {self.daily_metrics['stake_transfers_failed']}, Rate: {transfer_success_rate:.1f}%",
+                        "short": False
+                    },
+                    {
+                        "title": "💰 Today's Stake Swept",
+                        "value": f"{self.daily_metrics['total_stake_swept']:.9f} α",
+                        "short": True
+                    },
+                    {
+                        "title": "💸 Today's Stake Transferred",
+                        "value": f"{self.daily_metrics['total_stake_transferred']:.9f} α",
+                        "short": True
+                    },
+                    {
+                        "title": "📈 Lifetime Stake Swept",
+                        "value": f"{self.lifetime_metrics['total_lifetime_stake_swept']:.9f} α",
+                        "short": True
+                    },
+                    {
+                        "title": "📈 Lifetime Stake Transferred",
+                        "value": f"{self.lifetime_metrics['total_lifetime_stake_transferred']:.9f} α",
                         "short": True
                     },
                     {
@@ -434,13 +383,6 @@ class SlackNotifier:
                         "short": True
                     }
                 ]
-
-                if error_categories:
-                    fields.append({
-                        "title": "❌ Error Categories",
-                        "value": error_str,
-                        "short": False
-                    })
 
                 payload = {
                     "attachments": [{
@@ -455,16 +397,18 @@ class SlackNotifier:
                 response = requests.post(self.webhook_url, json=payload, timeout=10)
                 response.raise_for_status()
 
+                # Update lifetime metrics
+                self.lifetime_metrics["total_lifetime_stake_swept"] += self.daily_metrics["total_stake_swept"]
+                self.lifetime_metrics["total_lifetime_stake_transferred"] += self.daily_metrics["total_stake_transferred"]
+
                 # Reset daily metrics after successful send
                 self.daily_metrics = {
-                    "signals_processed": 0,
-                    "signals_failed": 0,
-                    "validator_response_times": [],
-                    "validator_counts": [],
-                    "trade_pair_counts": defaultdict(int),
-                    "successful_validators": set(),
-                    "error_categories": defaultdict(int),
-                    "failing_validators": defaultdict(int)
+                    "stake_sweeps_count": 0,
+                    "stake_sweeps_failed": 0,
+                    "stake_transfers_count": 0,
+                    "stake_transfers_failed": 0,
+                    "total_stake_swept": 0.0,
+                    "total_stake_transferred": 0.0,
                 }
 
             except Exception as e:
@@ -714,181 +658,31 @@ class SlackNotifier:
                     (old_uid, new_uid, datetime.now(timezone.utc))
                 )
 
-    def update_daily_metrics(self, signal_data: Dict[str, Any]):
-        """Update daily metrics with signal processing data (for miners)"""
-        if not self.is_miner:
-            return  # This method is only for miners
+    def record_stake_sweep_success(self, amount_tao: float):
+        """Record a successful stake sweep for miners"""
+        if self.is_miner:
+            with self.daily_summary_lock:
+                self.daily_metrics["stake_sweeps_count"] += 1
+                self.daily_metrics["total_stake_swept"] += amount_tao
 
-        with self.daily_summary_lock:
-            # Update trade pair counts
-            trade_pair_id = signal_data.get("trade_pair_id", "Unknown")
-            self.daily_metrics["trade_pair_counts"][trade_pair_id] += 1
+    def record_stake_sweep_failure(self):
+        """Record a failed stake sweep for miners"""
+        if self.is_miner:
+            with self.daily_summary_lock:
+                self.daily_metrics["stake_sweeps_failed"] += 1
 
-            # Update validator response times (individual validator times in ms)
-            if "validator_response_times" in signal_data:
-                validator_times = signal_data["validator_response_times"].values()
-                self.daily_metrics["validator_response_times"].extend(validator_times)
+    def record_stake_transfer_success(self, amount_tao: float):
+        """Record a successful stake transfer for miners"""
+        if self.is_miner:
+            with self.daily_summary_lock:
+                self.daily_metrics["stake_transfers_count"] += 1
+                self.daily_metrics["total_stake_transferred"] += amount_tao
 
-            # Update validator counts
-            if "validators_attempted" in signal_data:
-                self.daily_metrics["validator_counts"].append(signal_data["validators_attempted"])
-
-            # Track successful validators
-            if "validator_response_times" in signal_data:
-                self.daily_metrics["successful_validators"].update(signal_data["validator_response_times"].keys())
-
-            # Update error categories
-            if signal_data.get("validator_errors"):
-                for validator_hotkey, errors in signal_data["validator_errors"].items():
-                    for error in errors:
-                        category = self._categorize_error(error)
-                        self.daily_metrics["error_categories"][category] += 1
-                        self.daily_metrics["failing_validators"][validator_hotkey] += 1
-
-            # Update signal counts
-            if signal_data.get("exception"):
-                self.daily_metrics["signals_failed"] += 1
-            else:
-                self.daily_metrics["signals_processed"] += 1
-                # Update lifetime metrics
-                self.lifetime_metrics["total_lifetime_signals"] += 1
-                # self._save_lifetime_metrics()
-
-    def send_signal_summary(self, summary_data: Dict[str, Any]):
-        """Send a formatted signal processing summary to appropriate Slack channel"""
-        if not self.enabled:
-            return
-
-        try:
-            # Update daily metrics first
-            self.update_daily_metrics(summary_data)
-
-            # Determine overall status and which channel to use
-            if summary_data.get("exception") or not summary_data.get('validators_succeeded'):
-                status = "❌ Failed"
-                color = "#ff0000"
-                webhook_url = self.error_webhook_url
-            elif summary_data.get("all_high_trust_succeeded", False):
-                status = "✅ Success"
-                color = "#00ff00"
-                webhook_url = self.webhook_url
-            else:
-                status = "⚠️ Partial Success"
-                color = "#ff9900"
-                webhook_url = self.error_webhook_url
-
-            # Build enhanced fields
-            fields = [
-                {
-                    "title": "Status | Trade Pair",
-                    "value": status + " | " + summary_data.get("trade_pair_id", "Unknown"),
-                    "short": True
-                },
-                {
-                    "title": f"{self.node_type} Hotkey | Order UUID",
-                    "value": "..." + summary_data.get("miner_hotkey", "Unknown")[
-                                     -8:] + f" | {summary_data.get('signal_uuid', 'Unknown')[:12]}...",
-                },
-                {
-                    "title": "VM IP | Script Uptime",
-                    "value": f"{self.vm_ip} | {self._get_uptime_str()}",
-                    "short": True
-                },
-                {
-                    "title": "Validators (succeeded/attempted)",
-                    "value": f"{summary_data.get('validators_succeeded', 0)}/{summary_data.get('validators_attempted', 0)}",
-                    "short": True
-                }
-            ]
-
-            # Add error categorization if present
-            if summary_data.get("validator_errors"):
-                error_categories = defaultdict(int)
-                for validator_errors in summary_data["validator_errors"].values():
-                    for error in validator_errors:
-                        category = self._categorize_error(error)
-                        error_categories[category] += 1
-
-                if error_categories:
-                    error_summary = ", ".join([f"{cat}: {count}" for cat, count in error_categories.items()])
-                    error_messages_truncated = []
-                    for e in summary_data.get("validator_errors", {}).values():
-                        e = str(e)
-                        if len(e) > 100:
-                            error_messages_truncated.append(e[100:300])
-                        else:
-                            error_messages_truncated.append(e)
-                    fields.append({
-                        "title": "🔍 Error Info",
-                        "value": error_summary + "\n" + "\n".join(error_messages_truncated),
-                        "short": False
-                    })
-
-            # Add validator response times if present
-            if summary_data.get("validator_response_times"):
-                response_times = summary_data["validator_response_times"]
-                unique_times = set(response_times.values())
-
-                if len(unique_times) > len(response_times) * 0.3:
-                    # Granular per-validator times
-                    sorted_times = sorted(response_times.items(), key=lambda x: x[1], reverse=True)
-                    response_time_str = "Individual validator response times:\n"
-                    for validator, time_taken in sorted_times[:10]:
-                        response_time_str += f"• ...{validator[-8:]}: {time_taken}ms\n"
-                    if len(sorted_times) > 10:
-                        response_time_str += f"... and {len(sorted_times) - 10} more validators"
-                else:
-                    # Batch processing times
-                    time_groups = defaultdict(list)
-                    for validator, time_taken in response_times.items():
-                        time_groups[time_taken].append(validator)
-
-                    sorted_groups = sorted(time_groups.items(), key=lambda x: x[0], reverse=True)
-                    response_time_str = "Response times by retry attempt:\n"
-                    for time_taken, validators in sorted_groups:
-                        validator_count = len(validators)
-                        example_validators = ", ".join(["..." + v[-8:] for v in validators[:3]])
-                        if validator_count > 3:
-                            example_validators += f" (+{validator_count - 3} more)"
-                        response_time_str += f"• {time_taken}ms: {validator_count} validators ({example_validators})\n"
-
-                fields.append({
-                    "title": "⏱️ Validator Response Times",
-                    "value": response_time_str.strip(),
-                    "short": False
-                })
-
-                avg_time = summary_data.get("average_response_time", 0)
-                if avg_time > 0:
-                    fields.append({
-                        "title": "Avg Response",
-                        "value": f"{avg_time}ms",
-                        "short": True
-                    })
-
-            # Add error details if present
-            if summary_data.get("exception"):
-                fields.append({
-                    "title": "💥 Error Details",
-                    "value": str(summary_data["exception"])[:200],
-                    "short": False
-                })
-
-            payload = {
-                "attachments": [{
-                    "color": color,
-                    "title": f"Signal Processing Summary - {status}",
-                    "fields": fields,
-                    "footer": f"Taoshi {self.node_type} Monitor",
-                    "ts": int(time.time())
-                }]
-            }
-
-            response = requests.post(webhook_url, json=payload, timeout=10)
-            response.raise_for_status()
-
-        except Exception as e:
-            bt.logging.error(f"Failed to send Slack summary: {e}")
+    def record_stake_transfer_failure(self):
+        """Record a failed stake transfer for miners"""
+        if self.is_miner:
+            with self.daily_summary_lock:
+                self.daily_metrics["stake_transfers_failed"] += 1
 
     def shutdown(self):
         """Clean shutdown - save metrics"""

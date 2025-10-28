@@ -124,6 +124,12 @@ def build_miner_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the immediate transfer after the first sweep.",
     )
+    parser.add_argument(
+        "--slack_webhook_url",
+        type=str,
+        default=None,
+        help="Slack webhook URL for notifications and monitoring.",
+    )
 
     bt.subtensor.add_args(parser)
     Wallet.add_args(parser)

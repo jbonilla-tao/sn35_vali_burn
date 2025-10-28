@@ -24,6 +24,7 @@ from bittensor.utils.balance import Balance
 from bittensor_wallet.errors import KeyFileError, PasswordError
 
 from utils.config import parse_miner_config
+from utils.slack_notifier import SlackNotifier
 from colorama import Fore, Style, init as colorama_init
 
 colorama_init(autoreset=True)
@@ -282,6 +283,7 @@ class StakeManager:
         aggregator_hotkey: str,
         destination_coldkey: str,
         wait_for_finalization: bool,
+        slack_notifier: Optional["SlackNotifier"] = None,
     ) -> None:
         self.subtensor = subtensor
         self.wallet = wallet
@@ -290,6 +292,7 @@ class StakeManager:
         self.aggregator_hotkey = aggregator_hotkey
         self.destination_coldkey = destination_coldkey
         self.wait_for_finalization = wait_for_finalization
+        self.slack_notifier = slack_notifier
         self.coldkey_ss58 = wallet.coldkeypub.ss58_address
         bt.logging.debug(
             f"StakeManager initialized with netuid={netuid}, primary_hotkey={primary_hotkey}, "
@@ -384,6 +387,21 @@ class StakeManager:
         bt.logging.debug(
             f"Move stake result for {self.primary_hotkey} -> {self.aggregator_hotkey}: {success}"
         )
+
+        # Record metrics and send slack notification on failures
+        if self.slack_notifier:
+            if success:
+                self.slack_notifier.record_stake_sweep_success(stake.tao)
+            else:
+                self.slack_notifier.record_stake_sweep_failure()
+                self.slack_notifier.send_message(
+                    f"❌ Stake sweep failed\n"
+                    f"From: ...{self.primary_hotkey[-8:]}\n"
+                    f"To: ...{self.aggregator_hotkey[-8:]}\n"
+                    f"Netuid: {self.netuid}",
+                    level="error"
+                )
+
         return success
 
     def transfer_aggregated_stake(self) -> bool:
@@ -423,8 +441,22 @@ class StakeManager:
 
         if success:
             bt.logging.success(f"{OK}✅ Stake transfer extrinsic succeeded.{Style.RESET_ALL}")
+            # Record successful transfer
+            if self.slack_notifier:
+                self.slack_notifier.record_stake_transfer_success(stake.tao)
         else:
             bt.logging.error(f"{ERR}❌ Stake transfer extrinsic failed on chain.{Style.RESET_ALL}")
+            # Record failure and send slack notification
+            if self.slack_notifier:
+                self.slack_notifier.record_stake_transfer_failure()
+                self.slack_notifier.send_message(
+                    f"❌ Stake transfer failed\n"
+                    f"Amount: {stake.tao:.9f} α\n"
+                    f"From: ...{self.aggregator_hotkey[-8:]}\n"
+                    f"To: ...{self.destination_coldkey[-8:]}\n"
+                    f"Netuid: {self.netuid}",
+                    level="error"
+                )
         bt.logging.debug(
             f"Transfer stake result from {self.aggregator_hotkey} to {self.destination_coldkey}: {success}"
         )
@@ -507,6 +539,9 @@ def main() -> None:
     bt.logging.debug(f"Parsed miner config: {config}")
     register_signal_handlers()
 
+    # Initialize Slack notifier
+    slack_notifier: Optional[SlackNotifier] = None
+
     wallet = bt.wallet(config=config)
     try:
         primary_hotkey_ss58 = wallet.hotkey.ss58_address
@@ -531,6 +566,28 @@ def main() -> None:
         f"hotkey {hotkey_ss58} on network {subtensor.network}."
     )
 
+    # Initialize SlackNotifier if webhook URL is provided
+    if getattr(config, "slack_webhook_url", None):
+        slack_notifier = SlackNotifier(
+            hotkey=primary_hotkey_ss58 or wallet.coldkeypub.ss58_address,
+            webhook_url=config.slack_webhook_url,
+            is_miner=True
+        )
+        bt.logging.info(f"{OK}📱 Slack notifications enabled{Style.RESET_ALL}")
+
+        # Send startup notification
+        slack_notifier.send_message(
+            f"🚀 Miner started on subnet {config.netuid}\n"
+            f"Coldkey: ...{wallet.coldkeypub.ss58_address[-8:]}\n"
+            f"Hotkey: ...{hotkey_ss58[-8:]}\n"
+            f"Network: {subtensor.network}\n"
+            f"Aggregator: ...{config.aggregator_hotkey[-8:]}\n"
+            f"Destination: ...{config.destination_coldkey[-8:]}",
+            level="info"
+        )
+    else:
+        bt.logging.info(f"{WARN}📱 Slack notifications disabled{Style.RESET_ALL}")
+
     unlock_wallet(wallet)
     bt.logging.debug("Wallet unlocked successfully.")
 
@@ -542,6 +599,7 @@ def main() -> None:
         aggregator_hotkey=config.aggregator_hotkey,
         destination_coldkey=config.destination_coldkey,
         wait_for_finalization=config.wait_finalization,
+        slack_notifier=slack_notifier,
     )
 
     owned = manager.owned_hotkeys()
@@ -562,7 +620,20 @@ def main() -> None:
     bt.logging.info(
         f"{OK}🛰️ Entering epoch monitoring loop (poll interval {config.poll_interval:.1f}s). Press Ctrl+C to exit.{Style.RESET_ALL}"
     )
-    monitor_epochs(manager, config.poll_interval)
+    try:
+        monitor_epochs(manager, config.poll_interval)
+    finally:
+        # Send shutdown notification
+        if slack_notifier:
+            slack_notifier.send_message(
+                f"🛑 Miner stopped\n"
+                f"Coldkey: ...{wallet.coldkeypub.ss58_address[-8:]}\n"
+                f"Hotkey: ...{hotkey_ss58[-8:]}\n"
+                f"Netuid: {config.netuid}",
+                level="info"
+            )
+            slack_notifier.shutdown()
+
     bt.logging.info(f"{INFO}🛑 Shutdown complete.{Style.RESET_ALL}")
     bt.logging.debug("Miner script exited cleanly.")
 
